@@ -1,0 +1,294 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  // url is configured in prisma.config.ts
+}
+
+enum Role {
+  owner
+  admin
+  member
+}
+
+enum SeasonStatus {
+  draft
+  active
+  finished
+}
+
+enum EventStatus {
+  draft
+  open
+  closed
+  resolved
+  canceled
+  disputed
+}
+
+enum OddsMode {
+  fixed
+  parimutuel
+}
+
+enum BetStatus {
+  active
+  won
+  lost
+  refunded
+  canceled
+}
+
+enum LedgerType {
+  season_start
+  bet_lock
+  bet_unlock
+  payout
+  refund
+  adjustment
+}
+
+enum Category {
+  board
+  sport
+  movie
+  food
+  travel
+  chaos
+  meta
+  games
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  avatar    String
+  email     String?  @unique
+  password  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships    GroupMember[]
+  bets           Bet[]
+  comments       EventComment[]
+  reactions      EventReaction[]
+  achievements   UserAchievement[]
+  wallets        Wallet[]
+  createdEvents  BetEvent[] @relation("EventCreator")
+  resolvedEvents BetEvent[] @relation("EventResolver")
+  createdBoards  Board[]    @relation("BoardOwner")
+  credentials    Credential[]
+}
+
+model Credential {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  login     String   @unique
+  passwordHash String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Board {
+  id           String   @id @default(uuid())
+  slug         String   @unique
+  name         String
+  description  String?
+  ownerId      String
+  currencyName String   @default("очки")
+  timezone     String   @default("Europe/Moscow")
+  inviteCode   String   @unique @default(uuid())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  owner        User          @relation("BoardOwner", fields: [ownerId], references: [id])
+  members      GroupMember[]
+  seasons      Season[]
+  events       BetEvent[]
+}
+
+model GroupMember {
+  boardId  String
+  userId   String
+  role     Role       @default(member)
+  joinedAt DateTime   @default(now())
+  title    String?
+
+  board Board @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([boardId, userId])
+}
+
+model Season {
+  id               String       @id @default(uuid())
+  boardId          String
+  name             String
+  status           SeasonStatus @default(draft)
+  startingBalance  Int          @default(1000)
+  startsAt         DateTime     @default(now())
+  endsAt           DateTime?
+
+  board      Board      @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  wallets    Wallet[]
+  events     BetEvent[]
+
+  @@index([boardId, status])
+}
+
+model Wallet {
+  id             String @id @default(uuid())
+  seasonId       String
+  userId         String
+  balance        Int    @default(0)
+  lockedBalance  Int    @default(0)
+
+  season Season @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ledger LedgerEntry[]
+
+  @@unique([seasonId, userId])
+  @@index([userId])
+}
+
+model BetEvent {
+  id          String     @id @default(uuid())
+  boardId     String
+  seasonId    String
+  title       String
+  description String?
+  category    Category
+  closesAt    DateTime
+  startsAt    DateTime?
+  status      EventStatus @default(draft)
+  oddsMode    OddsMode   @default(parimutuel)
+  minBet      Int        @default(10)
+  maxBet      Int        @default(300)
+  createdBy   String
+  resolvedBy  String?
+  resolvedAt  DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  board     Board         @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  season    Season        @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  outcomes  EventOutcome[]
+  bets      Bet[]
+  creator   User          @relation("EventCreator", fields: [createdBy], references: [id])
+  resolver  User?         @relation("EventResolver", fields: [resolvedBy], references: [id])
+  comments  EventComment[]
+  reactions EventReaction[]
+  ledger    LedgerEntry[]
+
+  @@index([boardId, status])
+  @@index([seasonId, status])
+}
+
+model EventOutcome {
+  id          String  @id @default(uuid())
+  eventId     String
+  label       String
+  sortOrder   Int     @default(0)
+  fixedOdds   Float?
+  winning     Boolean?
+  createdAt   DateTime @default(now())
+
+  event  BetEvent    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  bets   Bet[]
+
+  @@index([eventId])
+}
+
+model Bet {
+  id        String     @id @default(uuid())
+  eventId   String
+  outcomeId String
+  userId    String
+  amount    Int
+  status    BetStatus  @default(active)
+  payout    Int?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  event    BetEvent      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  outcome  EventOutcome  @relation(fields: [outcomeId], references: [id], onDelete: Cascade)
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ledger   LedgerEntry[]
+
+  @@unique([eventId, userId])
+  @@index([userId, status])
+  @@index([eventId, outcomeId])
+}
+
+model LedgerEntry {
+  id            String      @id @default(uuid())
+  walletId      String
+  eventId       String?
+  betId         String?
+  type          LedgerType
+  amount        Int
+  balanceAfter  Int
+  createdAt     DateTime    @default(now())
+
+  wallet Wallet    @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  event  BetEvent? @relation(fields: [eventId], references: [id], onDelete: SetNull, map: "LedgerEntry_event_fkey")
+  bet    Bet?      @relation(fields: [betId], references: [id], onDelete: SetNull)
+
+  @@index([walletId, createdAt])
+}
+
+model EventComment {
+  id        String   @id @default(uuid())
+  eventId   String
+  userId    String
+  text      String
+  createdAt DateTime @default(now())
+
+  event     BetEvent       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, createdAt])
+}
+
+model EventReaction {
+  id        String   @id @default(uuid())
+  eventId   String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  event BetEvent     @relation(fields: [eventId], references: [id], onDelete: Cascade, map: "EventReaction_event_fkey")
+  user  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId, emoji])
+}
+
+model Achievement {
+  code        String   @id
+  title       String
+  description String
+  createdAt   DateTime @default(now())
+
+  users UserAchievement[]
+}
+
+model UserAchievement {
+  id            String   @id @default(uuid())
+  userId        String
+  achievementId String
+  seasonId      String?
+  earnedAt      DateTime @default(now())
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement Achievement  @relation(fields: [achievementId], references: [code], onDelete: Cascade)
+
+  @@unique([userId, achievementId, seasonId])
+}

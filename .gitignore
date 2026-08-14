@@ -1,0 +1,32 @@
+# ===== BetBoard =====
+
+# Исходное описание продукта (design doc) не коммитим в репозиторий.
+# Полный документ живёт локально в ABOUT.md.
+ABOUT.md
+
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build / generated output
+dist/
+build/
+out/
+.next/
+*.tsbuildinfo
+*.tsbuildinfo.*
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+
+# Local tooling configs
+.claude/
+.windsurf/
+.agents/
